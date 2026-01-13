@@ -19,7 +19,7 @@ GROQ_API_KEY = settings.groq_api_key or ""
 
 # Embedding model - 768 dimensions (same as nomic-embed-text in Ollama)
 EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
-EMBEDDING_URL = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{EMBEDDING_MODEL}"
+EMBEDDING_URL = f"https://router.huggingface.co/pipeline/feature-extraction/{EMBEDDING_MODEL}"
 
 # LLM model
 LLM_MODEL = "llama-3.1-8b-instant"
