@@ -120,11 +120,11 @@ async def upload_document(
     db.refresh(new_document)
 
     # Generate embedding in background (non-blocking)
-    import asyncio
-    asyncio.create_task(generate_document_embedding(
+    background_tasks.add_task(
+        generate_document_embedding,
         document_id=str(new_document.id),
         content=extracted_text
-    ))
+    )
 
     return new_document
 
