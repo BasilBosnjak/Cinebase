@@ -1,16 +1,49 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime, timedelta
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import User, Document
 from ..schemas import DocumentCreate, DocumentResponse, StatsResponse
 from ..services import file_storage, pdf_extractor
+from ..services.ai import get_embedding
 from ..config import settings
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+async def generate_document_embedding(document_id: str, content: str):
+    """Background task to generate and store document embedding"""
+    try:
+        print(f"[Embedding] Generating embedding for document {document_id}")
+
+        # Generate embedding using Hugging Face API
+        embedding = await get_embedding(content[:8000])
+
+        # Store embedding in database
+        db = SessionLocal()
+        try:
+            db.execute(
+                text("""
+                    UPDATE documents
+                    SET embedding = :embedding::vector
+                    WHERE id = :document_id::uuid
+                """),
+                {
+                    "embedding": str(embedding),
+                    "document_id": document_id
+                }
+            )
+            db.commit()
+            print(f"[Embedding] Successfully stored embedding for document {document_id}")
+        finally:
+            db.close()
+
+    except Exception as e:
+        print(f"[Embedding] Failed to generate embedding for document {document_id}: {e}")
+
 
 @router.get("/{user_id}/documents", response_model=List[DocumentResponse])
 def get_user_documents(user_id: UUID, db: Session = Depends(get_db)):
@@ -24,6 +57,7 @@ def get_user_documents(user_id: UUID, db: Session = Depends(get_db)):
 @router.post("/{user_id}/documents", response_model=DocumentResponse, status_code=201)
 async def upload_document(
     user_id: UUID,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     db: Session = Depends(get_db)
@@ -85,17 +119,12 @@ async def upload_document(
     db.commit()
     db.refresh(new_document)
 
-    # Trigger n8n to generate embeddings (non-blocking)
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(
-                "http://localhost:5678/webhook/d9fa1612-b168-4bd4-8f44-624fcaa8f9a2",
-                json={"document_id": str(new_document.id)}
-            )
-    except Exception as e:
-        # Don't fail upload if n8n is down
-        print(f"Warning: Failed to trigger n8n webhook: {e}")
+    # Generate embedding in background (non-blocking)
+    import asyncio
+    asyncio.create_task(generate_document_embedding(
+        document_id=str(new_document.id),
+        content=extracted_text
+    ))
 
     return new_document
 

@@ -1,0 +1,127 @@
+{
+  "name": "Weekly Job Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [1],
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every Monday 9am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:8000/jobs/weekly-digest",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "fetch-digest",
+      "name": "Fetch Weekly Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "digests",
+        "options": {}
+      },
+      "id": "split-users",
+      "name": "Split by User",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format email HTML for each user\nconst digest = $input.item.json;\n\nconst jobsHtml = digest.top_matches.map((job, i) => `\n  <tr>\n    <td style=\"padding: 12px; border-bottom: 1px solid #eee;\">\n      <strong>#${i + 1}</strong>\n    </td>\n    <td style=\"padding: 12px; border-bottom: 1px solid #eee;\">\n      <a href=\"${job.job_url}\" style=\"color: #2563eb; text-decoration: none; font-weight: bold;\">\n        ${job.title}\n      </a>\n      <br/>\n      <span style=\"color: #666;\">${job.company} - ${job.location}</span>\n      ${job.salary_min || job.salary_max ? `<br/><span style=\"color: #16a34a;\">$${job.salary_min?.toLocaleString() || '?'} - $${job.salary_max?.toLocaleString() || '?'}</span>` : ''}\n    </td>\n    <td style=\"padding: 12px; border-bottom: 1px solid #eee; text-align: center;\">\n      <span style=\"background: ${job.similarity_score >= 0.8 ? '#dcfce7' : job.similarity_score >= 0.6 ? '#fef9c3' : '#f3f4f6'}; \n                   color: ${job.similarity_score >= 0.8 ? '#166534' : job.similarity_score >= 0.6 ? '#854d0e' : '#374151'};\n                   padding: 4px 12px; border-radius: 12px; font-weight: bold;\">\n        ${Math.round(job.similarity_score * 100)}%\n      </span>\n    </td>\n  </tr>\n`).join('');\n\nconst html = `\n<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n</head>\n<body style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;\">\n  <div style=\"background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%); color: white; padding: 24px; border-radius: 12px 12px 0 0;\">\n    <h1 style=\"margin: 0; font-size: 24px;\">Your Weekly Job Matches</h1>\n    <p style=\"margin: 8px 0 0 0; opacity: 0.9;\">Based on your CV: ${digest.document_name}</p>\n  </div>\n  \n  <div style=\"background: #f8fafc; padding: 16px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;\">\n    <p style=\"margin: 0; color: #64748b;\">\n      We searched for <strong style=\"color: #1e293b;\">\"${digest.search_term}\"</strong> and found these top matches:\n    </p>\n  </div>\n\n  <table style=\"width: 100%; border-collapse: collapse; background: white; border: 1px solid #e2e8f0;\">\n    <thead>\n      <tr style=\"background: #f1f5f9;\">\n        <th style=\"padding: 12px; text-align: left; width: 40px;\">#</th>\n        <th style=\"padding: 12px; text-align: left;\">Job</th>\n        <th style=\"padding: 12px; text-align: center; width: 80px;\">Match</th>\n      </tr>\n    </thead>\n    <tbody>\n      ${jobsHtml}\n    </tbody>\n  </table>\n\n  <div style=\"background: #f8fafc; padding: 16px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px; text-align: center;\">\n    <p style=\"margin: 0; color: #64748b; font-size: 14px;\">\n      Match percentages show how well each job aligns with your CV.\n      <br/>Higher is better!\n    </p>\n  </div>\n\n  <p style=\"color: #94a3b8; font-size: 12px; text-align: center; margin-top: 24px;\">\n    Sent by Cinebase Job Matcher\n  </p>\n</body>\n</html>\n`;\n\nreturn {\n  email: digest.email,\n  subject: `${digest.top_matches.length} New Job Matches for You`,\n  html: html\n};"
+      },
+      "id": "format-email",
+      "name": "Format Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [880, 0],
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_WITH_YOUR_SMTP_CREDENTIALS_ID",
+          "name": "SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every Monday 9am": {
+      "main": [
+        [
+          {
+            "node": "Fetch Weekly Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Weekly Digest": {
+      "main": [
+        [
+          {
+            "node": "Split by User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split by User": {
+      "main": [
+        [
+          {
+            "node": "Format Email HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Email HTML": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
