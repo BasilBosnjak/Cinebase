@@ -85,3 +85,17 @@ export const documentsApi = {
     return `${API_URL}/documents/${documentId}/view`;
   },
 };
+
+export const jobsApi = {
+  matchJobs: async (documentId, location = 'Remote', resultsWanted = 10, isRemote = true) => {
+    return fetchApi('/jobs/match', {
+      method: 'POST',
+      body: JSON.stringify({
+        document_id: documentId,
+        location: location,
+        results_wanted: resultsWanted,
+        is_remote: isRemote,
+      }),
+    });
+  },
+};

@@ -84,6 +84,19 @@ async def upload_document(
     db.add(new_document)
     db.commit()
     db.refresh(new_document)
+
+    # Trigger n8n to generate embeddings (non-blocking)
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                "http://localhost:5678/webhook/d9fa1612-b168-4bd4-8f44-624fcaa8f9a2",
+                json={"document_id": str(new_document.id)}
+            )
+    except Exception as e:
+        # Don't fail upload if n8n is down
+        print(f"Warning: Failed to trigger n8n webhook: {e}")
+
     return new_document
 
 @router.get("/{user_id}/stats", response_model=StatsResponse)

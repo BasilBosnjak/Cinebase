@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
 import uuid
 from ..database import Base
 
@@ -16,6 +17,7 @@ class Document(Base):
     mime_type = Column(String(100), nullable=True)
     title = Column(String(500), nullable=True)
     content = Column(Text, nullable=True)
+    embedding = Column(Vector(384), nullable=True)
     status = Column(String(50), nullable=False, default="pending", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
