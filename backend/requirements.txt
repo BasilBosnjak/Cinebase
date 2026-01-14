@@ -10,7 +10,7 @@ python-multipart==0.0.6
 aiofiles==23.2.1
 httpx==0.25.2
 pgvector==0.2.4
-huggingface-hub==0.20.3
+cohere==5.11.0
 numpy==1.26.3
 python-jobspy==1.1.75
 pandas>=2.0.0

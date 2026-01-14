@@ -2,24 +2,24 @@
 AI Service Module - Cloud API integrations for embeddings and LLM.
 
 Uses:
-- Hugging Face Inference API for embeddings (Qwen3-Embedding-0.6B)
+- Cohere API for embeddings (embed-english-v3.0)
 - Groq for LLM (llama-3.1-8b-instant)
 
 Environment variables required:
-- HUGGINGFACE_API_KEY: Hugging Face API token
+- COHERE_API_KEY: Cohere API token
 - GROQ_API_KEY: Groq API key
 """
 
 import httpx
+import cohere
 from typing import List
 from ..config import settings
 
-HUGGINGFACE_API_KEY = settings.huggingface_api_key or ""
+COHERE_API_KEY = settings.cohere_api_key or ""
 GROQ_API_KEY = settings.groq_api_key or ""
 
-# Embedding model - Qwen3-Embedding-0.6B supports 32-1024 dimensions
-# Using 768 to match existing pgvector column
-EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+# Embedding model - Cohere embed-english-v3.0 (1024 dimensions, truncated to 768)
+EMBEDDING_MODEL = "embed-english-v3.0"
 EMBEDDING_DIMENSIONS = 768
 
 # LLM model
@@ -29,82 +29,50 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 async def get_embedding(text: str) -> List[float]:
     """
-    Get embedding vector from Hugging Face Router API.
+    Get embedding vector from Cohere API.
     Returns 768-dimensional vector (compatible with existing pgvector column).
 
-    Uses the new router.huggingface.co endpoint (api-inference.huggingface.co is deprecated).
+    Uses Cohere embed-english-v3.0 (1024 dims) and truncates to 768.
     """
-    if not HUGGINGFACE_API_KEY:
-        raise ValueError("HUGGINGFACE_API_KEY environment variable not set")
-
-    # Correct URL format based on HuggingFace router API
-    API_URL = f"https://router.huggingface.co/hf-inference/models/{EMBEDDING_MODEL}/pipeline/feature-extraction"
+    if not COHERE_API_KEY:
+        raise ValueError("COHERE_API_KEY environment variable not set")
 
     print(f"[AI Service] Requesting embedding for text of length: {len(text)} chars")
-    print(f"[AI Service] Using model: {EMBEDDING_MODEL}")
-    print(f"[AI Service] API URL: {API_URL}")
-
-    headers = {
-        "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "inputs": text[:8000]  # Truncate to 8000 chars
-    }
+    print(f"[AI Service] Using Cohere model: {EMBEDDING_MODEL}")
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(API_URL, headers=headers, json=payload)
+        # Initialize Cohere client
+        co = cohere.Client(api_key=COHERE_API_KEY)
 
-            print(f"[AI Service] Response status: {response.status_code}")
+        # Get embedding
+        # Cohere's embed method returns embeddings for a list of texts
+        response = co.embed(
+            texts=[text[:8000]],  # Truncate to 8000 chars
+            model=EMBEDDING_MODEL,
+            input_type="search_document",  # For document embeddings (vs "search_query")
+            embedding_types=["float"]
+        )
 
-            if response.status_code != 200:
-                error_text = response.text
-                print(f"[AI Service] Error response: {error_text}")
-                raise Exception(f"Embedding API error: {response.status_code} - {error_text}")
+        # Extract the embedding from the response
+        embedding = response.embeddings.float[0]  # Get first (and only) embedding
 
-            result = response.json()
-            print(f"[AI Service] Response type: {type(result)}")
+        print(f"[AI Service] Cohere returned embedding with {len(embedding)} dimensions")
 
-            # Handle nested list response
-            embedding = None
-            if isinstance(result, list) and len(result) > 0:
-                if isinstance(result[0], list):
-                    embedding = result[0]  # Nested: [[0.1, 0.2, ...]]
-                    print(f"[AI Service] Nested list format, dimensions: {len(embedding)}")
-                else:
-                    embedding = result  # Flat: [0.1, 0.2, ...]
-                    print(f"[AI Service] Flat list format, dimensions: {len(embedding)}")
+        # Truncate to 768 dimensions (Cohere returns 1024)
+        if len(embedding) > EMBEDDING_DIMENSIONS:
+            print(f"[AI Service] Truncating from {len(embedding)} to {EMBEDDING_DIMENSIONS} dimensions")
+            embedding = embedding[:EMBEDDING_DIMENSIONS]
+        elif len(embedding) < EMBEDDING_DIMENSIONS:
+            print(f"[AI Service] Warning: Embedding has only {len(embedding)} dimensions, expected {EMBEDDING_DIMENSIONS}")
+            # Pad with zeros if needed
+            embedding.extend([0.0] * (EMBEDDING_DIMENSIONS - len(embedding)))
 
-            if not embedding:
-                print(f"[AI Service] Unexpected format - result: {str(result)[:200]}")
-                raise Exception(f"Unexpected embedding response format: {type(result)}")
+        print(f"[AI Service] Successfully generated {len(embedding)}-dimensional embedding")
+        return embedding
 
-            print(f"[AI Service] Embedding dimensions: {len(embedding)}")
-
-            # Truncate or pad to match expected dimensions (768)
-            if len(embedding) > EMBEDDING_DIMENSIONS:
-                print(f"[AI Service] Truncating from {len(embedding)} to {EMBEDDING_DIMENSIONS} dimensions")
-                return embedding[:EMBEDDING_DIMENSIONS]
-            elif len(embedding) < EMBEDDING_DIMENSIONS:
-                print(f"[AI Service] Warning: Embedding has only {len(embedding)} dimensions, expected {EMBEDDING_DIMENSIONS}")
-                # Pad with zeros if needed
-                embedding.extend([0.0] * (EMBEDDING_DIMENSIONS - len(embedding)))
-                return embedding
-
-            print(f"[AI Service] Successfully generated embedding with {len(embedding)} dimensions")
-            return embedding
-
-    except httpx.TimeoutException as e:
-        print(f"[AI Service] Timeout error: {e}")
-        raise Exception(f"Embedding API timeout after 60s")
-    except httpx.RequestError as e:
-        print(f"[AI Service] Request error: {e}")
-        raise Exception(f"Embedding API request failed: {str(e)}")
     except Exception as e:
         print(f"[AI Service] Error generating embedding: {type(e).__name__}: {e}")
-        raise Exception(f"Embedding generation failed: {str(e)}")
+        raise Exception(f"Cohere embedding generation failed: {str(e)}")
 
 
 async def generate_text(prompt: str, max_tokens: int = 100, temperature: float = 0.1) -> str:

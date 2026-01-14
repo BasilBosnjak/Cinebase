@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     # AI API Keys (for cloud deployment)
     huggingface_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
+    cohere_api_key: Optional[str] = None
 
     class Config:
         env_file = ".env"
