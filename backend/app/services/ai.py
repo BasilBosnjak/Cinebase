@@ -42,10 +42,7 @@ async def get_embedding(text: str) -> List[float]:
 
     try:
         # Initialize HuggingFace InferenceClient
-        client = InferenceClient(
-            provider="hf-inference",
-            api_key=HUGGINGFACE_API_KEY
-        )
+        client = InferenceClient(token=HUGGINGFACE_API_KEY)
 
         # Get embedding using feature_extraction
         # The client handles all the endpoint URLs automatically
