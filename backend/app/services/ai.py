@@ -22,7 +22,7 @@ GROQ_API_KEY = settings.groq_api_key or ""
 EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 EMBEDDING_DIMENSIONS = 768
 # Using standard Inference API endpoint
-EMBEDDING_URL = f"https://api-inference.huggingface.co/models/{EMBEDDING_MODEL}"
+EMBEDDING_URL = "https://router.huggingface.co/hf-inference/models/Qwen/Qwen3-Embedding-0.6B"
 
 # LLM model
 LLM_MODEL = "llama-3.1-8b-instant"
