@@ -34,25 +34,45 @@ async def get_embedding(text: str) -> List[float]:
     if not HUGGINGFACE_API_KEY:
         raise ValueError("HUGGINGFACE_API_KEY environment variable not set")
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            EMBEDDING_URL,
-            headers={"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"},
-            json={"inputs": text[:8000], "options": {"wait_for_model": True}}
-        )
+    print(f"[AI Service] Requesting embedding from: {EMBEDDING_URL}")
+    print(f"[AI Service] Text length: {len(text)} chars (truncated to {min(len(text), 8000)})")
 
-        if response.status_code != 200:
-            raise Exception(f"Embedding API error: {response.status_code} - {response.text}")
+    async with httpx.AsyncClient(timeout=60.0) as client:  # Increased timeout to 60s
+        try:
+            response = await client.post(
+                EMBEDDING_URL,
+                headers={"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"},
+                json={"inputs": text[:8000], "options": {"wait_for_model": True}}
+            )
 
-        result = response.json()
+            print(f"[AI Service] Response status: {response.status_code}")
 
-        # Handle nested list response
-        if isinstance(result, list) and len(result) > 0:
-            if isinstance(result[0], list):
-                return result[0]  # Nested: [[0.1, 0.2, ...]]
-            return result  # Flat: [0.1, 0.2, ...]
+            if response.status_code != 200:
+                error_text = response.text
+                print(f"[AI Service] Error response: {error_text}")
+                raise Exception(f"Embedding API error: {response.status_code} - {error_text}")
 
-        raise Exception(f"Unexpected embedding response format: {type(result)}")
+            result = response.json()
+            print(f"[AI Service] Response type: {type(result)}")
+
+            # Handle nested list response
+            if isinstance(result, list) and len(result) > 0:
+                if isinstance(result[0], list):
+                    embedding = result[0]  # Nested: [[0.1, 0.2, ...]]
+                    print(f"[AI Service] Nested list format, dimensions: {len(embedding)}")
+                    return embedding
+                embedding = result  # Flat: [0.1, 0.2, ...]
+                print(f"[AI Service] Flat list format, dimensions: {len(embedding)}")
+                return embedding
+
+            print(f"[AI Service] Unexpected format - result: {str(result)[:200]}")
+            raise Exception(f"Unexpected embedding response format: {type(result)}")
+        except httpx.TimeoutException as e:
+            print(f"[AI Service] Timeout error: {e}")
+            raise Exception(f"Embedding API timeout after 60s")
+        except httpx.RequestError as e:
+            print(f"[AI Service] Request error: {e}")
+            raise Exception(f"Embedding API request failed: {str(e)}")
 
 
 async def generate_text(prompt: str, max_tokens: int = 100, temperature: float = 0.1) -> str:

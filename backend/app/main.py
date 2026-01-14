@@ -51,3 +51,25 @@ def debug_config():
         "groq_api_key_set": bool(GROQ_API_KEY),
         "groq_api_key_preview": f"{GROQ_API_KEY[:8]}...{GROQ_API_KEY[-4:]}" if GROQ_API_KEY else None,
     }
+
+@app.get("/debug/test-embedding")
+async def test_embedding():
+    """Test endpoint to verify embedding generation works"""
+    from .services.ai import get_embedding
+
+    try:
+        test_text = "This is a test document for embedding generation."
+        embedding = await get_embedding(test_text)
+
+        return {
+            "success": True,
+            "dimensions": len(embedding),
+            "first_5_values": embedding[:5],
+            "message": "Embedding generation successful!"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
