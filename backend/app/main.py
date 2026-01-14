@@ -38,3 +38,16 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
+@app.get("/debug/config")
+def debug_config():
+    """Debug endpoint to verify environment configuration"""
+    from .services.ai import HUGGINGFACE_API_KEY, GROQ_API_KEY, EMBEDDING_URL
+
+    return {
+        "embedding_url": EMBEDDING_URL,
+        "huggingface_api_key_set": bool(HUGGINGFACE_API_KEY),
+        "huggingface_api_key_preview": f"{HUGGINGFACE_API_KEY[:8]}...{HUGGINGFACE_API_KEY[-4:]}" if HUGGINGFACE_API_KEY else None,
+        "groq_api_key_set": bool(GROQ_API_KEY),
+        "groq_api_key_preview": f"{GROQ_API_KEY[:8]}...{GROQ_API_KEY[-4:]}" if GROQ_API_KEY else None,
+    }
