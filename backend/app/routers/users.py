@@ -36,8 +36,8 @@ async def generate_document_embedding(document_id: str, content: str):
             result = db.execute(
                 text("""
                     UPDATE documents
-                    SET embedding = :embedding::vector
-                    WHERE id = :document_id::uuid
+                    SET embedding = CAST(:embedding AS vector)
+                    WHERE id = CAST(:document_id AS uuid)
                 """),
                 {
                     "embedding": embedding_str,
@@ -49,7 +49,7 @@ async def generate_document_embedding(document_id: str, content: str):
 
             # Verify the update
             verify_result = db.execute(
-                text("SELECT embedding IS NOT NULL as has_embedding FROM documents WHERE id = :document_id::uuid"),
+                text("SELECT embedding IS NOT NULL as has_embedding FROM documents WHERE id = CAST(:document_id AS uuid)"),
                 {"document_id": document_id}
             ).first()
 
