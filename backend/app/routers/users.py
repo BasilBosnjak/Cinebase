@@ -17,32 +17,57 @@ router = APIRouter(prefix="/users", tags=["users"])
 async def generate_document_embedding(document_id: str, content: str):
     """Background task to generate and store document embedding"""
     try:
-        print(f"[Embedding] Generating embedding for document {document_id}")
+        print(f"[Embedding] Starting embedding generation for document {document_id}")
+        print(f"[Embedding] Content length: {len(content)} chars")
 
-        # Generate embedding using Hugging Face API
+        # Generate embedding using Cohere API
         embedding = await get_embedding(content[:8000])
+        print(f"[Embedding] Generated embedding with {len(embedding)} dimensions")
+
+        # Convert embedding list to PostgreSQL vector format: [0.1,0.2,0.3]
+        # pgvector expects a string like "[0.1,0.2,0.3]" without spaces
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+        print(f"[Embedding] Formatted embedding string (first 100 chars): {embedding_str[:100]}...")
 
         # Store embedding in database
         db = SessionLocal()
         try:
-            db.execute(
+            print(f"[Embedding] Updating database for document {document_id}")
+            result = db.execute(
                 text("""
                     UPDATE documents
                     SET embedding = :embedding::vector
                     WHERE id = :document_id::uuid
                 """),
                 {
-                    "embedding": str(embedding),
+                    "embedding": embedding_str,
                     "document_id": document_id
                 }
             )
             db.commit()
-            print(f"[Embedding] Successfully stored embedding for document {document_id}")
+            print(f"[Embedding] Database update affected {result.rowcount} rows")
+
+            # Verify the update
+            verify_result = db.execute(
+                text("SELECT embedding IS NOT NULL as has_embedding FROM documents WHERE id = :document_id::uuid"),
+                {"document_id": document_id}
+            ).first()
+
+            if verify_result and verify_result[0]:
+                print(f"[Embedding] ✓ Successfully stored embedding for document {document_id}")
+            else:
+                print(f"[Embedding] ✗ Warning: Embedding is still NULL after update for document {document_id}")
+
+        except Exception as db_error:
+            print(f"[Embedding] Database error: {type(db_error).__name__}: {db_error}")
+            raise
         finally:
             db.close()
 
     except Exception as e:
-        print(f"[Embedding] Failed to generate embedding for document {document_id}: {e}")
+        print(f"[Embedding] Failed to generate embedding for document {document_id}: {type(e).__name__}: {e}")
+        import traceback
+        print(f"[Embedding] Traceback: {traceback.format_exc()}")
 
 
 @router.get("/{user_id}/documents", response_model=List[DocumentResponse])
