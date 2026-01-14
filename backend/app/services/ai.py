@@ -17,9 +17,11 @@ from ..config import settings
 HUGGINGFACE_API_KEY = settings.huggingface_api_key or ""
 GROQ_API_KEY = settings.groq_api_key or ""
 
-# Embedding model - 768 dimensions (same as nomic-embed-text in Ollama)
-EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
-# Using standard Inference API endpoint (not router)
+# Embedding model - Qwen3-Embedding-0.6B supports 32-1024 dimensions
+# Using 768 to match existing pgvector column
+EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+EMBEDDING_DIMENSIONS = 768
+# Using standard Inference API endpoint
 EMBEDDING_URL = f"https://api-inference.huggingface.co/models/{EMBEDDING_MODEL}"
 
 # LLM model
@@ -57,17 +59,30 @@ async def get_embedding(text: str) -> List[float]:
             print(f"[AI Service] Response type: {type(result)}")
 
             # Handle nested list response
+            embedding = None
             if isinstance(result, list) and len(result) > 0:
                 if isinstance(result[0], list):
                     embedding = result[0]  # Nested: [[0.1, 0.2, ...]]
                     print(f"[AI Service] Nested list format, dimensions: {len(embedding)}")
-                    return embedding
-                embedding = result  # Flat: [0.1, 0.2, ...]
-                print(f"[AI Service] Flat list format, dimensions: {len(embedding)}")
+                else:
+                    embedding = result  # Flat: [0.1, 0.2, ...]
+                    print(f"[AI Service] Flat list format, dimensions: {len(embedding)}")
+
+            if not embedding:
+                print(f"[AI Service] Unexpected format - result: {str(result)[:200]}")
+                raise Exception(f"Unexpected embedding response format: {type(result)}")
+
+            # Truncate or pad to match expected dimensions (768)
+            if len(embedding) > EMBEDDING_DIMENSIONS:
+                print(f"[AI Service] Truncating from {len(embedding)} to {EMBEDDING_DIMENSIONS} dimensions")
+                return embedding[:EMBEDDING_DIMENSIONS]
+            elif len(embedding) < EMBEDDING_DIMENSIONS:
+                print(f"[AI Service] Warning: Embedding has only {len(embedding)} dimensions, expected {EMBEDDING_DIMENSIONS}")
+                # Pad with zeros if needed
+                embedding.extend([0.0] * (EMBEDDING_DIMENSIONS - len(embedding)))
                 return embedding
 
-            print(f"[AI Service] Unexpected format - result: {str(result)[:200]}")
-            raise Exception(f"Unexpected embedding response format: {type(result)}")
+            return embedding
         except httpx.TimeoutException as e:
             print(f"[AI Service] Timeout error: {e}")
             raise Exception(f"Embedding API timeout after 60s")
