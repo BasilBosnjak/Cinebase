@@ -12,9 +12,6 @@ class Settings(BaseSettings):
     groq_api_key: Optional[str] = None
     cohere_api_key: Optional[str] = None
 
-    # n8n Webhook URL for embedding generation
-    n8n_webhook_url: Optional[str] = None
-
     class Config:
         env_file = ".env"
 

@@ -1,48 +1,73 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime, timedelta
-import httpx
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import User, Document
 from ..schemas import DocumentCreate, DocumentResponse, StatsResponse
 from ..services import file_storage, pdf_extractor
+from ..services.ai import get_embedding
 from ..config import settings
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-# N8N webhook URL for embedding generation
-N8N_WEBHOOK_URL = settings.n8n_webhook_url if hasattr(settings, 'n8n_webhook_url') else None
 
-
-async def trigger_embedding_generation(document_id: str):
-    """Trigger n8n webhook to generate document embedding"""
-    if not N8N_WEBHOOK_URL:
-        print(f"[Embedding] Warning: N8N_WEBHOOK_URL not configured, skipping embedding generation")
-        return
-
+async def generate_document_embedding(document_id: str, content: str):
+    """Background task to generate and store document embedding"""
     try:
-        print(f"[Embedding] Triggering n8n webhook for document {document_id}")
+        print(f"[Embedding] Starting embedding generation for document {document_id}")
+        print(f"[Embedding] Content length: {len(content)} chars")
 
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                N8N_WEBHOOK_URL,
-                json={"document_id": document_id}
+        # Generate embedding using Cohere API
+        embedding = await get_embedding(content[:8000])
+        print(f"[Embedding] Generated embedding with {len(embedding)} dimensions")
+
+        # Convert embedding list to PostgreSQL vector format: [0.1,0.2,0.3]
+        # pgvector expects a string like "[0.1,0.2,0.3]" without spaces
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+        print(f"[Embedding] Formatted embedding string (first 100 chars): {embedding_str[:100]}...")
+
+        # Store embedding in database
+        db = SessionLocal()
+        try:
+            print(f"[Embedding] Updating database for document {document_id}")
+            result = db.execute(
+                text("""
+                    UPDATE documents
+                    SET embedding = CAST(:embedding AS vector)
+                    WHERE id = CAST(:document_id AS uuid)
+                """),
+                {
+                    "embedding": embedding_str,
+                    "document_id": document_id
+                }
             )
+            db.commit()
+            print(f"[Embedding] Database update affected {result.rowcount} rows")
 
-            if response.status_code == 200:
-                print(f"[Embedding] ✓ Successfully triggered n8n workflow for document {document_id}")
+            # Verify the update
+            verify_result = db.execute(
+                text("SELECT embedding IS NOT NULL as has_embedding FROM documents WHERE id = CAST(:document_id AS uuid)"),
+                {"document_id": document_id}
+            ).first()
+
+            if verify_result and verify_result[0]:
+                print(f"[Embedding] ✓ Successfully stored embedding for document {document_id}")
             else:
-                print(f"[Embedding] ✗ n8n webhook returned status {response.status_code}: {response.text}")
+                print(f"[Embedding] ✗ Warning: Embedding is still NULL after update for document {document_id}")
 
-    except httpx.TimeoutException:
-        # Timeout is OK - n8n might take longer but will process in background
-        print(f"[Embedding] n8n webhook triggered (timed out but will process in background)")
+        except Exception as db_error:
+            print(f"[Embedding] Database error: {type(db_error).__name__}: {db_error}")
+            raise
+        finally:
+            db.close()
+
     except Exception as e:
-        print(f"[Embedding] Failed to trigger n8n webhook: {type(e).__name__}: {e}")
-        # Don't raise - embedding generation is non-critical
+        print(f"[Embedding] Failed to generate embedding for document {document_id}: {type(e).__name__}: {e}")
+        import traceback
+        print(f"[Embedding] Traceback: {traceback.format_exc()}")
 
 
 @router.get("/{user_id}/documents", response_model=List[DocumentResponse])
@@ -57,6 +82,7 @@ def get_user_documents(user_id: UUID, db: Session = Depends(get_db)):
 @router.post("/{user_id}/documents", response_model=DocumentResponse, status_code=201)
 async def upload_document(
     user_id: UUID,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     db: Session = Depends(get_db)
@@ -118,8 +144,12 @@ async def upload_document(
     db.commit()
     db.refresh(new_document)
 
-    # Trigger n8n webhook for embedding generation (non-blocking)
-    await trigger_embedding_generation(str(new_document.id))
+    # Generate embedding in background (non-blocking)
+    background_tasks.add_task(
+        generate_document_embedding,
+        document_id=str(new_document.id),
+        content=extracted_text
+    )
 
     return new_document
 
