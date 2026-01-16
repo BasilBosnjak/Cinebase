@@ -88,6 +88,12 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600">{user?.email}</span>
             <button
+              onClick={() => navigate('/chat')}
+              className="px-4 py-2 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700"
+            >
+              Ask Questions
+            </button>
+            <button
               onClick={handleLogout}
               className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
             >

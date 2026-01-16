@@ -99,3 +99,16 @@ export const jobsApi = {
     });
   },
 };
+
+export const ragApi = {
+  query: async (userId, query, documentId = null) => {
+    return fetchApi('/rag/query', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        query,
+        document_id: documentId,
+      }),
+    });
+  },
+};
