@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: cinebase-n8n
+    runtime: docker
+    repo: https://github.com/YOUR_USERNAME/Cinebase
+    branch: main
+    rootDir: n8n
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: N8N_BASIC_AUTH_ACTIVE
+        value: true
+      - key: N8N_BASIC_AUTH_USER
+        sync: false
+      - key: N8N_BASIC_AUTH_PASSWORD
+        sync: false
+      - key: N8N_ENCRYPTION_KEY
+        generateValue: true
+      - key: N8N_HOST
+        value: 0.0.0.0
+      - key: N8N_PORT
+        value: 5678
+      - key: N8N_PROTOCOL
+        value: https
+      - key: WEBHOOK_URL
+        value: https://cinebase-n8n.onrender.com
+      - key: GENERIC_TIMEZONE
+        value: America/New_York
+      - key: DB_TYPE
+        value: sqlite
+      - key: N8N_LOG_LEVEL
+        value: info
