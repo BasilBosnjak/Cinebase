@@ -58,6 +58,37 @@ export const usersApi = {
     return response.json();
   },
 
+  uploadDocumentsBatch: async (userId, formData) => {
+    const response = await fetch(`${API_URL}/users/${userId}/documents/batch`, {
+      method: 'POST',
+      body: formData,
+      // No Content-Type header - let browser set multipart boundary
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new ApiError(error.detail || 'Upload failed', response.status);
+    }
+
+    const result = await response.json();
+
+    // Handle partial failures
+    if (result.failed > 0) {
+      const failedFiles = result.results
+        .filter(r => !r.success)
+        .map(r => `${r.filename}: ${r.error}`)
+        .join('; ');
+
+      if (result.successful === 0) {
+        throw new ApiError(`All uploads failed: ${failedFiles}`, response.status);
+      } else {
+        console.warn(`Partial upload success: ${failedFiles}`);
+      }
+    }
+
+    return result;
+  },
+
   getStats: async (userId) => {
     return fetchApi(`/users/${userId}/stats`);
   },

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 
@@ -27,3 +27,19 @@ class DocumentResponse(DocumentBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class DocumentUploadResult(BaseModel):
+    """Result for a single document upload in batch operation"""
+    success: bool
+    document: Optional[DocumentResponse] = None
+    filename: str
+    error: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class BatchUploadResponse(BaseModel):
+    """Response for batch document upload"""
+    total_files: int
+    successful: int
+    failed: int
+    results: List[DocumentUploadResult]

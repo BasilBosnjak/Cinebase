@@ -1,56 +1,73 @@
 import { useState } from 'react';
 
 export default function AddDocumentForm({ onUpload }) {
-  const [file, setFile] = useState(null);
-  const [title, setTitle] = useState('');
+  const [files, setFiles] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
 
   const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (!selectedFile) {
-      setFile(null);
+    const selectedFiles = Array.from(e.target.files);
+
+    if (selectedFiles.length === 0) {
+      setFiles([]);
       setError('');
       return;
     }
 
-    // Validate file type
-    if (selectedFile.type !== 'application/pdf') {
-      setError('Only PDF files are allowed');
-      setFile(null);
+    // Validate batch size
+    if (selectedFiles.length > 10) {
+      setError('Maximum 10 files allowed per batch');
+      setFiles([]);
       return;
     }
 
-    // Validate file size (10MB max)
+    // Validate each file
     const maxSize = 10 * 1024 * 1024; // 10MB in bytes
-    if (selectedFile.size > maxSize) {
-      setError('File size must be less than 10MB');
-      setFile(null);
+    const invalidFiles = [];
+
+    for (const file of selectedFiles) {
+      // Validate file type
+      if (file.type !== 'application/pdf') {
+        invalidFiles.push(`${file.name}: Only PDF files are allowed`);
+        continue;
+      }
+
+      // Validate file size
+      if (file.size > maxSize) {
+        invalidFiles.push(`${file.name}: File size must be less than 10MB`);
+      }
+    }
+
+    if (invalidFiles.length > 0) {
+      setError(invalidFiles.join('; '));
+      setFiles([]);
       return;
     }
 
     setError('');
-    setFile(selectedFile);
+    setFiles(selectedFiles);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!file) return;
+    if (files.length === 0) return;
 
     setUploading(true);
     setError('');
 
     try {
       const formData = new FormData();
-      formData.append('file', file);
-      if (title) formData.append('title', title);
+
+      // Append all files with 'files' field name
+      files.forEach(file => {
+        formData.append('files', file);
+      });
 
       await onUpload(formData);
 
       // Reset form
-      setFile(null);
-      setTitle('');
+      setFiles([]);
       setIsOpen(false);
     } catch (err) {
       setError(err.message || 'Upload failed');
@@ -59,13 +76,19 @@ export default function AddDocumentForm({ onUpload }) {
     }
   };
 
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   if (!isOpen) {
     return (
       <button
         onClick={() => setIsOpen(true)}
         className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
       >
-        Upload PDF
+        Upload PDF(s)
       </button>
     );
   }
@@ -78,45 +101,51 @@ export default function AddDocumentForm({ onUpload }) {
         </div>
       )}
 
-      <input
-        type="text"
-        placeholder="Title (optional)"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        disabled={uploading}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-
       <div>
         <input
           type="file"
           accept="application/pdf"
+          multiple
           onChange={handleFileChange}
           disabled={uploading}
           required
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        {file && (
-          <p className="mt-1 text-sm text-gray-600">
-            Selected: {file.name} ({(file.size / 1024).toFixed(1)} KB)
-          </p>
+        {files.length > 0 && (
+          <div className="mt-2 space-y-1">
+            <p className="text-sm font-medium text-gray-700">
+              {files.length} file{files.length !== 1 ? 's' : ''} selected:
+            </p>
+            <ul className="text-sm text-gray-600 space-y-1 max-h-32 overflow-y-auto">
+              {files.map((file, index) => (
+                <li key={index} className="flex justify-between">
+                  <span className="truncate mr-2">{file.name}</span>
+                  <span className="text-gray-500 whitespace-nowrap">
+                    {formatFileSize(file.size)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
 
       <div className="flex gap-2">
         <button
           type="submit"
-          disabled={!file || uploading}
+          disabled={files.length === 0 || uploading}
           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
-          {uploading ? 'Uploading...' : 'Upload PDF'}
+          {uploading
+            ? 'Uploading...'
+            : `Upload ${files.length} PDF${files.length !== 1 ? 's' : ''}`
+          }
         </button>
         <button
           type="button"
           onClick={() => {
             setIsOpen(false);
-            setFile(null);
-            setTitle('');
+            setFiles([]);
             setError('');
           }}
           disabled={uploading}

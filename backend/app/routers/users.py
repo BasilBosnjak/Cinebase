@@ -6,7 +6,10 @@ from uuid import UUID
 from datetime import datetime, timedelta
 from ..database import get_db, SessionLocal
 from ..models import User, Document
-from ..schemas import DocumentCreate, DocumentResponse, StatsResponse
+from ..schemas import (
+    DocumentCreate, DocumentResponse, StatsResponse,
+    DocumentUploadResult, BatchUploadResponse
+)
 from ..services import file_storage, pdf_extractor
 from ..services.ai import get_embedding
 from ..config import settings
@@ -152,6 +155,134 @@ async def upload_document(
     )
 
     return new_document
+
+@router.post("/{user_id}/documents/batch", response_model=BatchUploadResponse, status_code=201)
+async def upload_documents_batch(
+    user_id: UUID,
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload multiple PDF documents at once.
+    Each file is processed independently with detailed per-file results.
+    """
+    # Verify user exists (once for all files)
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Validate batch size
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    if len(files) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 files allowed per batch")
+
+    results = []
+    successful_count = 0
+    failed_count = 0
+
+    # Process each file independently
+    for file in files:
+        filename = file.filename
+        result = DocumentUploadResult(
+            success=False,
+            filename=filename,
+            error=None,
+            document=None
+        )
+
+        try:
+            # Validate file type
+            if file.content_type != "application/pdf":
+                result.error = "Only PDF files are allowed"
+                failed_count += 1
+                results.append(result)
+                continue
+
+            # Validate file size
+            file_content = await file.read()
+            file_size = len(file_content)
+
+            if file_size > settings.max_file_size:
+                max_size_mb = settings.max_file_size / (1024 * 1024)
+                result.error = f"File size exceeds maximum of {max_size_mb}MB"
+                failed_count += 1
+                results.append(result)
+                continue
+
+            # Reset file pointer for saving
+            await file.seek(0)
+
+            # Save file to storage
+            try:
+                file_metadata = await file_storage.save_uploaded_file(
+                    user_id=user_id,
+                    file=file,
+                    upload_dir=settings.upload_dir
+                )
+            except HTTPException as http_exc:
+                result.error = http_exc.detail
+                failed_count += 1
+                results.append(result)
+                continue
+            except Exception as e:
+                result.error = f"Failed to save file: {str(e)}"
+                failed_count += 1
+                results.append(result)
+                continue
+
+            # Extract text from PDF
+            try:
+                extracted_text = pdf_extractor.extract_text_from_pdf(file_metadata["file_path"])
+            except Exception as e:
+                # If extraction fails, set a default message but continue
+                extracted_text = f"[Text extraction failed: {str(e)}]"
+
+            # Create document record in database
+            new_document = Document(
+                user_id=user_id,
+                file_path=file_metadata["file_path"],
+                original_filename=file_metadata["original_filename"],
+                file_size=file_metadata["file_size"],
+                mime_type=file_metadata["mime_type"],
+                title=None,  # No per-file titles in batch mode
+                content=extracted_text,
+                status="processed"
+            )
+            db.add(new_document)
+            db.commit()
+            db.refresh(new_document)
+
+            # Generate embedding in background (non-blocking)
+            background_tasks.add_task(
+                generate_document_embedding,
+                document_id=str(new_document.id),
+                content=extracted_text
+            )
+
+            # Success!
+            result.success = True
+            result.document = new_document
+            successful_count += 1
+            results.append(result)
+
+        except Exception as e:
+            # Catch-all for any unexpected errors
+            result.error = f"Unexpected error: {str(e)}"
+            failed_count += 1
+            results.append(result)
+            # Rollback this file's transaction but continue processing
+            db.rollback()
+
+    # Return aggregated results
+    return BatchUploadResponse(
+        total_files=len(files),
+        successful=successful_count,
+        failed=failed_count,
+        results=results
+    )
 
 @router.get("/{user_id}/stats", response_model=StatsResponse)
 def get_user_stats(user_id: UUID, db: Session = Depends(get_db)):

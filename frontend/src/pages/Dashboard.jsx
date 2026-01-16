@@ -41,7 +41,27 @@ export default function Dashboard() {
 
   const handleUploadDocument = async (formData) => {
     try {
-      await usersApi.uploadDocument(user.id, formData);
+      const files = formData.getAll('files');
+
+      if (files.length === 1) {
+        // Use single upload for backward compatibility
+        formData.delete('files');
+        formData.append('file', files[0]);
+        await usersApi.uploadDocument(user.id, formData);
+      } else {
+        // Use batch upload for multiple files
+        const result = await usersApi.uploadDocumentsBatch(user.id, formData);
+
+        // Show warning if partial success
+        if (result.failed > 0) {
+          const failedFiles = result.results
+            .filter(r => !r.success)
+            .map(r => r.filename)
+            .join(', ');
+          setError(`Warning: ${result.successful}/${result.total_files} uploaded. Failed: ${failedFiles}`);
+        }
+      }
+
       loadData();
     } catch (err) {
       setError(err.message);
